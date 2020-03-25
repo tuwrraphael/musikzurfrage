@@ -1,0 +1,163 @@
+<!doctype html>
+
+<html lang="de">
+
+<head>
+    <title>Musik zur Frage</title>
+</head>
+
+<body>
+    <button onclick="connectSpotify()" id="connect">Spotify verbinden</button>
+    <div id="player" style="display: none;">
+        <h1>Verbunden!</h1>
+        <div>
+            <label for="q" style="display: block;">Quizfrage</label>
+            <input id="q" type="text" style="width: 100%;" />
+        </div>
+        <div>
+            <button type="button" onclick="playAll()">Bei allen abspielen</button>
+        </div>
+        <div id="notfound" style="display: none;">Nichts gefunden!</div>
+    </div>
+    <div id="playerr" style="display: none;">Fehler! Spotify App/Handy/PC verbunden?</div>
+    <!-- <div id="error" style="display: none;">Verbindungsfehler, neu laden!</div> -->
+    <script type="text/javascript">
+        var access_token = null;
+        var exp = null;
+
+        var access_token = null;
+        var exp = localStorage.getItem("exp");
+        exp = parseInt(exp);
+        if (exp > +new Date()) {
+            access_token = localStorage.getItem("token");
+        }
+        var url = window.location;
+        var searchp = new URLSearchParams(url.hash.replace(/^#/, ""))
+        var token_from_url = searchp.get("access_token");
+        if (token_from_url) {
+            var expires = parseInt(searchp.get("expires_in"));
+            localStorage.setItem("token", token_from_url);
+            exp = +(new Date) + expires * 1000;
+            localStorage.setItem("exp", exp);
+            history.replaceState(null, null, ' ');
+            access_token = token_from_url;
+        }
+        if (access_token) {
+            document.getElementById("connect").style.display = "none";
+            document.getElementById("player").style.display = "block";
+            setTimeout(function () {
+                window.location.reload();
+            }, exp - (+ new Date()));
+        }
+        function connectSpotify() {
+            var oauth2Endpoint = 'https://accounts.spotify.com/authorize';
+            var form = document.createElement('form');
+            form.setAttribute('method', 'GET');
+            form.setAttribute('action', oauth2Endpoint);
+
+
+            var params = {
+                'client_id': '3c4aea778d164dda9a01f9c1500b58f3',
+                'redirect_uri': 'http://localhost:4200',
+                'response_type': 'token',
+                'scope': 'user-modify-playback-state'
+            };
+
+            // Add form parameters as hidden input values.
+            for (var p in params) {
+                var input = document.createElement('input');
+                input.setAttribute('type', 'hidden');
+                input.setAttribute('name', p);
+                input.setAttribute('value', params[p]);
+                form.appendChild(input);
+            }
+
+            // Add form to page and submit it to open the OAuth 2.0 endpoint.
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        function find(input) {
+            return fetch("https://api.spotify.com/v1/search?type=track&q=" + encodeURIComponent(input), {
+                headers: {
+                    "Authorization": "Bearer " + access_token
+                }
+            })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.tracks.items.length > 0) {
+                        return res.tracks.items[0];
+                    }
+                    else {
+                        var words = input.split(" ");
+                        if (words.length > 1) {
+                            words.pop();
+                            return find(words.join(" "));
+                        }
+                        else {
+                            return Promise.reject("not found");
+                        }
+                    }
+                });
+        }
+
+        function play(trackid) {
+            return fetch('https://api.spotify.com/v1/me/player/play', {
+                method: 'PUT',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    "Authorization": "Bearer " + access_token
+                },
+                body: JSON.stringify({ uris: ["spotify:track:" + trackid] })
+            });
+        }
+
+        var socket = null;
+
+        function playAll() {
+            document.getElementById("notfound").style.display = "none";
+            let frage = document.getElementById("q").value;
+            find(frage).then(track => {
+                socket.send(JSON.stringify({ type: "play", trackId: track.id }));
+            }, err => {
+                document.getElementById("notfound").style.display = "block";
+            });
+        }
+
+        function connect() {
+            socket = new WebSocket("ws://localhost:7887");
+            socket.onopen = function () {
+                console.log("connected");
+            };
+            socket.onerror = function (error) {
+                console.log('WebSocket Error ' + error);
+                socket.close();
+            };
+            socket.onclose = function (e) {
+                console.log('Socket is closed. Reconnect will be attempted in 1 second.', e.reason);
+                setTimeout(function () {
+                    connect();
+                }, 1000);
+            }
+            socket.onmessage = function (e) {
+                var command = JSON.parse(e.data);
+                switch (command.type) {
+                    case "play": {
+                        play(command.trackId).then(res => {
+                            if (res.ok) {
+                                document.getElementById("playerr").style.display = "none";
+                            }
+                            else {
+                                document.getElementById("playerr").style.display = "block";
+                            }
+                        });
+                    }
+                }
+            };
+        }
+        connect();
+    </script>
+</body>
+
+</html>
