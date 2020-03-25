@@ -126,7 +126,7 @@
         }
 
         function connect() {
-            socket = new WebSocket("ws://localhost:7887");
+            socket = new WebSocket("wss://smallvm.westeurope.cloudapp.azure.com:7887");
             socket.onopen = function () {
                 console.log("connected");
             };
